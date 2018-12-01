@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import sys
 import time
 import uuid
@@ -13,6 +15,7 @@ from PyQt4.QtCore import *
 from PyQt4.QtSvg import *
 
 from PIL import Image
+from functools import reduce
 
 
 class LiveView(QFrame):
@@ -85,9 +88,9 @@ class LiveView(QFrame):
 
         if self.previousImage:
             h2 = self.previousImage.histogram()
-            rms = math.sqrt(reduce(operator.add, map(lambda a, b: (a - b) ** 2, h1, h2)) / len(h1))
+            rms = math.sqrt(reduce(operator.add, list(map(lambda a, b: (a - b) ** 2, h1, h2))) / len(h1))
 
-            print(int(rms / 10))
+            print((int(rms / 10)))
 
         self.previousImage = image1
 
@@ -255,11 +258,12 @@ class MyMainWindow(QWidget):
         v = self.camera.sendCameraCommand('setTouchAFPosition', [x, y])
 
     def changeStillSize(self):
-        index = self.stillSizeCombo.currentIndex()
-        aspect = self.camera.supportedStillSizes[index]['aspect']
-        size = self.camera.supportedStillSizes[index]['size']
-        print(aspect,size)
-        self.camera.sendCameraCommand('setStillSize', ['%s' % aspect, '%s' % size])
+        if self.shootModeCombo.currentIndex() == 0: 
+            index = self.stillSizeCombo.currentIndex()
+            aspect = self.camera.supportedStillSizes[index]['aspect']
+            size = self.camera.supportedStillSizes[index]['size']
+            print((aspect,size))
+            self.camera.sendCameraCommand('setStillSize', ['%s' % aspect, '%s' % size])
 
     def changeShootMode(self):
         index = self.shootModeCombo.currentIndex()
@@ -267,10 +271,14 @@ class MyMainWindow(QWidget):
             self.camera.stillMode()
             self.startRecButton.setEnabled(False)
             self.stopRecButton.setEnabled(False)
+            self.stillSizeCombo.setEnabled(True)
+            self.snapButton.setEnabled(True)
         elif index == 1:
             self.camera.videoMode()
             self.startRecButton.setEnabled(True)
             self.stopRecButton.setEnabled(True)
+            self.stillSizeCombo.setEnabled(False)
+            self.snapButton.setEnabled(False)
 
     def connectedToCamera(self):
         self.changeGuiState(True)
@@ -292,10 +300,12 @@ class MyMainWindow(QWidget):
 
     def startVideo(self):
         self.startRecButton.setEnabled(False)
+        self.shootModeCombo.setEnabled(False)
         self.camera.startVideo()
 
     def stopVideo(self):
         self.startRecButton.setEnabled(True)
+        self.shootModeCombo.setEnabled(True)
         self.camera.stopVideo()
 
     def takePhoto(self):
@@ -336,7 +346,7 @@ class MyMainWindow(QWidget):
                 with open(newFilePath, 'wb') as f:
                     f.write(imageData)
             except:
-                print("Unable to save file %s.jpg" % newFilePath)
+                print(("Unable to save file %s.jpg" % newFilePath))
 
 
 #---------------------------------------------------Main--------------------------------------------

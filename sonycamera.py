@@ -1,18 +1,36 @@
-
 import sys
 import socket
-import urlparse
+import urllib.parse
 import json
-import Queue
+import queue
 import time
 
-from Queue import Queue
+from queue import Queue
 
 from lxml import etree
 from PyQt4.QtGui import *
 from PyQt4.QtCore import *
 from PyQt4.QtSvg import *
 
+
+def cmp_to_key(mycmp):
+    'Convert a cmp= function into a key= function'
+    class K(object):
+        def __init__(self, obj, *args):
+            self.obj = obj
+        def __lt__(self, other):
+            return mycmp(self.obj, other.obj) < 0
+        def __gt__(self, other):
+            return mycmp(self.obj, other.obj) > 0
+        def __eq__(self, other):
+            return mycmp(self.obj, other.obj) == 0
+        def __le__(self, other):
+            return mycmp(self.obj, other.obj) <= 0  
+        def __ge__(self, other):
+            return mycmp(self.obj, other.obj) >= 0
+        def __ne__(self, other):
+            return mycmp(self.obj, other.obj) != 0
+    return K
 
 
 class SonyCamera(QObject):
@@ -120,7 +138,7 @@ class SonyCamera(QObject):
         message = messageTemplate.format(SonyCamera.SSDP_IP, SonyCamera.SSDP_PORT, st=service)
 
         for retry in range(retries):
-            print("Retry: %d" % retry)
+            print(("Retry: %d" % retry))
 
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -133,7 +151,7 @@ class SonyCamera(QObject):
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
                     sock.settimeout(timeout)
-                    sock.sendto(message, (SonyCamera.SSDP_IP, SonyCamera.SSDP_PORT))
+                    sock.sendto(bytes(message, 'UTF-8'), (SonyCamera.SSDP_IP, SonyCamera.SSDP_PORT))
 
                 except socket.error:
                     sock.close()
@@ -141,7 +159,7 @@ class SonyCamera(QObject):
 
             if sock:
                 try:
-                    responseString = sock.recv(1024)
+                    responseString = sock.recv(1024).decode('utf8')
 
                 except socket.error:
                     responseString = ''
@@ -185,7 +203,7 @@ class SonyCamera(QObject):
         retVal = False
 
         # Use contents of SSDP response to get camera XML document.
-        url = urlparse.urlparse(self.SSDPInfo['location'])
+        url = urllib.parse.urlparse(self.SSDPInfo['location'])
 
         # Get IP address and port number of camera XML document.
         temp = url.netloc.split(':')
@@ -194,7 +212,7 @@ class SonyCamera(QObject):
 
         commandString = "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n" % (url.path, HOST)
 
-        sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), HOST, PORT, commandString)
+        sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), HOST, PORT, bytes(commandString, 'UTF-8'))
 
         if sock:
             try:
@@ -230,10 +248,10 @@ class SonyCamera(QObject):
             if len(temp) >= 2:
                 serviceUrls[temp[0].text] = temp[1].text
 
-        if serviceUrls.has_key('camera'):
+        if 'camera' in serviceUrls:
             # Extract camera URL. This is where the camera API commands are sent to.
             pathString = '/'.join([serviceUrls['camera'], 'camera'])
-            self.cameraUrl = urlparse.urlparse(pathString)
+            self.cameraUrl = urllib.parse.urlparse(pathString)
 
             # Get camera command API URL and port number.
             temp = self.cameraUrl.netloc.split(':')
@@ -253,17 +271,17 @@ class SonyCamera(QObject):
         for line in headerLines:
             lowerline = line.lower()
 
-            if lowerline.startswith('content-length: '):
-                payloadLength = int(line.split(': ', 1)[1])
+            if lowerline.startswith(bytes('content-length: ', 'UTF-8')):
+                payloadLength = int(line.split(bytes(': ', 'UTF-8'), 1)[1])
 
         return payloadLength
 
     def _getSupportedStillSizes(self):
         sizes = self._sendCameraCommand("getSupportedStillSize", [])[0]
 
-        print sizes
+        print(sizes)
 
-        def cmp(d1, d2):
+        def mcmp(d1, d2):
             x = int(d1['size'].rstrip('M'))
             y = int(d2['size'].rstrip('M'))
 
@@ -278,7 +296,7 @@ class SonyCamera(QObject):
                 return 0
 
         if sizes:
-            sizes.sort(cmp)
+            sizes.sort(key=cmp_to_key(mcmp))
             self.supportedStillSizes = sizes
 
         else:
@@ -293,7 +311,7 @@ class SonyCamera(QObject):
             self.liveViewUrl = responseJsonValue[0]
 
             # Parse URL, extract info.
-            url = urlparse.urlparse(self.liveViewUrl)
+            url = urllib.parse.urlparse(self.liveViewUrl)
 
             # Get IP address and port number of live view server on camera.
             temp = url.netloc.split(':')
@@ -305,7 +323,7 @@ class SonyCamera(QObject):
                 imagePath = ''.join([url.path, '?', url.query])
                 commandString = "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n" % (imagePath, HOST)
 
-                sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), HOST, PORT, commandString)
+                sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), HOST, PORT, bytes(commandString, 'UTF-8'))
 
                 if sock:
                     # Keep live view socket open.
@@ -353,17 +371,17 @@ class SonyCamera(QObject):
     def _parseLiveViewHeaders(self, commonHeader, payloadHeader):
         # Check live view frame headers are sensible.
         if len(commonHeader) == SonyCamera.NUM_LIVEVIEW_HEADER_BYTES and \
-           ord(commonHeader[0]) == 0xFF and \
-           ord(commonHeader[1]) == 0x01 and \
+           commonHeader[0] == 0xFF and \
+           commonHeader[1] == 0x01 and \
            len(payloadHeader) == SonyCamera.NUM_LIVEVIEW_PAYLOAD_HEADER_BYTES and \
-           ord(payloadHeader[0]) == 0x24 and \
-           ord(payloadHeader[1]) == 0x35 and \
-           ord(payloadHeader[2]) == 0x68 and \
-           ord(payloadHeader[3]) == 0x79:
+           payloadHeader[0] == 0x24 and \
+           payloadHeader[1] == 0x35 and \
+           payloadHeader[2] == 0x68 and \
+           payloadHeader[3] == 0x79:
             # Compute payload length from 3 byte field..
-            totalNumBytesToGet = ord(payloadHeader[SonyCamera.PAYLOAD_SIZE_INDEX]) * 256 * 256 + \
-                                 ord(payloadHeader[SonyCamera.PAYLOAD_SIZE_INDEX+1]) * 256 + \
-                                 ord(payloadHeader[SonyCamera.PAYLOAD_SIZE_INDEX+2])
+            totalNumBytesToGet = payloadHeader[SonyCamera.PAYLOAD_SIZE_INDEX] * 256 * 256 + \
+                                 payloadHeader[SonyCamera.PAYLOAD_SIZE_INDEX+1] * 256 + \
+                                 payloadHeader[SonyCamera.PAYLOAD_SIZE_INDEX+2]
 
         else:
             totalNumBytesToGet = 0
@@ -395,7 +413,7 @@ class SonyCamera(QObject):
         commandString = "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\n\r\n" % (self.cameraUrl.path, self.cameraCommandHost, len(jsonDataString))
 
         # Setup socket.
-        sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), self.cameraCommandHost, self.cameraCommandPort, commandString + jsonDataString)
+        sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), self.cameraCommandHost, self.cameraCommandPort, bytes(commandString + jsonDataString, 'UTF-8'))
 
         # Socket created and command successfully sent?
         if sock:
@@ -409,7 +427,7 @@ class SonyCamera(QObject):
 
             else:
                 # Extract message header and json data.
-                header, _, jsonResponseString = commandResponseString.partition('\r\n\r\n')
+                header, _, jsonResponseString = commandResponseString.partition(bytes('\r\n\r\n', 'UTF-8'))
 
                 # Get header and payload lengths
                 payloadLength = self._getMessageLengthField(header)
@@ -422,25 +440,25 @@ class SonyCamera(QObject):
                     commandResponseString += self._recvAllData(sock, remainingBytesToGet)
 
                     # Extract packet header and JSON data.
-                    header, _, jsonResponseString = commandResponseString.partition('\r\n\r\n')
+                    header, _, jsonResponseString = commandResponseString.partition(bytes('\r\n\r\n', 'UTF-8'))
 
                 # Parse JSON string to create JSON object.
-                jsonCommandResponse = json.loads(jsonResponseString)
+                jsonCommandResponse = json.loads(jsonResponseString.decode('utf8'))
 
-                if jsonCommandResponse.has_key('error'):
+                if 'error' in jsonCommandResponse:
                     errorCode = jsonCommandResponse['error'][0]
                     errorMessage = jsonCommandResponse['error'][1]
                     print("sendCommand: Got error response")
-                    print("sendCommand: Method = %s" % methodStr)
-                    print("sendCommand: Params = %s" % paramsList)
-                    print("sendCommand: Error code = %d" % errorCode)
-                    print("sendCommand: Error message = %s" % errorMessage)
+                    print(("sendCommand: Method = %s" % methodStr))
+                    print(("sendCommand: Params = %s" % paramsList))
+                    print(("sendCommand: Error code = %d" % errorCode))
+                    print(("sendCommand: Error message = %s" % errorMessage))
                     retVal = None
 
-                elif jsonCommandResponse.has_key('result'):
+                elif 'result' in jsonCommandResponse:
                     retVal = jsonCommandResponse['result']
 
-                elif jsonCommandResponse.has_key('results'):
+                elif 'results' in jsonCommandResponse:
                     retVal = jsonCommandResponse['results']
 
                 else:
@@ -475,7 +493,7 @@ class SonyCamera(QObject):
         return sock
 
     def _recvAllData(self, sock, totalNumBytesToGet):
-        payload = ''
+        payload = b''
 
         while totalNumBytesToGet:
             if totalNumBytesToGet > SonyCamera.CHUNK_SIZE:
@@ -487,11 +505,11 @@ class SonyCamera(QObject):
             try:
                 data = sock.recv(numBytesToGet)
             except socket.error as msg:
-                data = ''
+                data = b''
 
             # Try succeeded.
             if len(data) == 0:
-                payload = ''
+                payload = b''
                 break
 
             else:
@@ -530,12 +548,12 @@ class SonyCamera(QObject):
             ret = self._sendCameraCommand("setShootMode", [mode])
 
             if ret[0] != 0:
-                print "ERROR: Unsuccessful change of shoot mode to %s" % mode
+                print("ERROR: Unsuccessful change of shoot mode to %s" % mode)
 
-            print ret
+            print(ret)
 
         else:
-            print "ERROR: Operation aborted, camera not in IDLE state, current state: %s" % cameraStatus[1]['cameraStatus']
+            print("ERROR: Operation aborted, camera not in IDLE state, current state: %s" % cameraStatus[1]['cameraStatus'])
 
     def _handleStartMovieRecEvent(self):
         cameraStatus = self._sendCameraCommand("getEvent", [False])
@@ -546,15 +564,15 @@ class SonyCamera(QObject):
                 ret = self._sendCameraCommand("startMovieRec", [])
 
                 if ret[0] != 0:
-                    print "ERROR: Cannot start Movie recording"
+                    print("ERROR: Cannot start Movie recording")
 
-                print ret
+                print(ret)
 
             else:
-                print "ERROR: Shooting mode must be set to Movie before start recording"
+                print("ERROR: Shooting mode must be set to Movie before start recording")
 
         else:
-            print "ERROR: Operation [StartMovieRec] aborted, camera not in IDLE state, current state: %s" % cameraStatus[1]['cameraStatus']
+            print("ERROR: Operation [StartMovieRec] aborted, camera not in IDLE state, current state: %s" % cameraStatus[1]['cameraStatus'])
 
     def _handleStopMovieRecEvent(self):
         cameraStatus = self._sendCameraCommand("getEvent", [False])
@@ -563,7 +581,7 @@ class SonyCamera(QObject):
             snapVideo = self._sendCameraCommand("stopMovieRec", [])
 
         else:
-            print "ERROR: Operation [StopMovieRec] aborted, camera not in MovieRecording state, current state: %s" % cameraStatus[1]['cameraStatus']
+            print("ERROR: Operation [StopMovieRec] aborted, camera not in MovieRecording state, current state: %s" % cameraStatus[1]['cameraStatus'])
 
     def _handleTakeFotoEvent(self):
         self.photoUploadPercent = 0
@@ -572,7 +590,7 @@ class SonyCamera(QObject):
 
         if cameraStatus[1]['cameraStatus'] == 'IDLE':
             snapShot = self._sendCameraCommand("actTakePicture", [])
-            print snapShot
+            print(snapShot)
             self.photoUploadPercent = 10
             waitForCamera = True
 
@@ -585,7 +603,7 @@ class SonyCamera(QObject):
                     waitForCamera = False
 
                     # Parse URL, extract info.
-                    url = urlparse.urlparse(snapShot[0][0])
+                    url = urllib.parse.urlparse(snapShot[0][0])
 
                     # Get IP address and port number of live view server on camera.
                     temp = url.netloc.split(':')
@@ -598,14 +616,14 @@ class SonyCamera(QObject):
 
                         commandString = "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n" % (imagePath, HOST)
 
-                        sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), HOST, PORT, commandString)
+                        sock = self._createSockAndSend((socket.AF_INET, socket.SOCK_STREAM), HOST, PORT, bytes(commandString, 'UTF-8'))
 
                         if sock:
                             httpHeader = sock.recv(SonyCamera.CHUNK_SIZE)
 
                             self.photoUploadPercent = 20
                             payloadLength = self._getMessageLengthField(httpHeader)
-                            image = ''
+                            image = b''
                             totalNumBytesToGet = payloadLength
 
                             while totalNumBytesToGet:
@@ -619,11 +637,11 @@ class SonyCamera(QObject):
                                     data = sock.recv(numBytesToGet)
 
                                 except socket.error as msg:
-                                    data = ''
+                                    data = b''
 
                                 # Check we got some data.
                                 if len(data) == 0:
-                                    image = ''
+                                    image = b''
                                     break
 
                                 else:
