@@ -263,11 +263,11 @@ class MyMainWindow(QWidget):
 
     def changeShootMode(self):
         index = self.shootModeCombo.currentIndex()
-        if index == 1:
+        if index == 0:
             self.camera.stillMode()
             self.startRecButton.setEnabled(False)
             self.stopRecButton.setEnabled(False)
-        elif index == 2:
+        elif index == 1:
             self.camera.videoMode()
             self.startRecButton.setEnabled(True)
             self.stopRecButton.setEnabled(True)
@@ -276,7 +276,7 @@ class MyMainWindow(QWidget):
         self.changeGuiState(True)
 
         self.shootModeCombo.clear()
-        modeList = ['Default', 'Still', 'Video']
+        modeList = ['Still', 'Video']
         for modeItem in modeList:
             self.shootModeCombo.addItem(modeItem)
 
